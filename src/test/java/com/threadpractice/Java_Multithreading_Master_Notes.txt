@@ -1,0 +1,767 @@
+JAVA MULTITHREADING - MASTER NOTES
+==================================
+
+Purpose:
+A single revision file containing definitions, important methods, simple
+examples, explanations, and interview questions with answers.
+
+Package used in earlier practice examples: com.threadpractice
+
+
+CONTENTS
+--------
+1. What is a thread?
+2. start() vs run()
+3. Important methods of the Thread class
+4. Runnable and creating threads
+5. join()
+6. Race condition and synchronized
+7. wait(), notify(), notifyAll(), sleep()
+8. Deadlock
+9. Thread states
+10. Thread priority
+11. Thread pool and ExecutorService
+12. Runnable vs Callable
+13. execute() vs submit()
+14. Daemon threads
+15. volatile
+16. synchronized vs Lock
+17. 35 interview questions and answers
+
+
+1. WHAT IS A THREAD?
+--------------------
+
+A thread is a path of execution within a process. A Java program can use
+multiple threads to perform different tasks concurrently.
+
+Example:
+- One thread downloads a file.
+- Another thread updates the user interface.
+- Another thread processes data.
+
+A process is a running program. A process can contain multiple threads.
+Threads in the same process share memory, which is why shared data must be
+handled carefully.
+
+
+2. start() VS run()
+-------------------
+
+start():
+- Starts a new thread of execution.
+- The JVM arranges for the new thread to execute its run() method.
+- A Thread object can be started only once.
+
+run():
+- Contains the work the thread performs.
+- Calling run() directly is just a normal method call.
+- Calling run() directly does NOT create a new thread.
+
+Example:
+
+    Thread t1 = new Thread(() -> {
+        System.out.println(Thread.currentThread().getName());
+    });
+
+    t1.start();  // Executes on a new thread.
+
+    // If we instead call t1.run(), it executes on the current thread,
+    // usually main. No new thread is created.
+
+Remember:
+Use start() to start a separate thread. You normally do not call run()
+yourself when using the Thread class.
+
+
+3. IMPORTANT METHODS OF THE THREAD CLASS
+----------------------------------------
+
+1) start()
+   Starts a new thread. The JVM then invokes run() on that thread.
+
+2) run()
+   Contains the code/task executed by the thread. A direct call is a
+   normal method call, not a new thread.
+
+3) sleep(milliseconds)
+   Pauses the CURRENT thread for approximately the specified time.
+   It is static. It does not release a monitor lock held by the thread.
+
+4) join()
+   Makes the CURRENT thread wait until the target thread finishes.
+
+5) getName()
+   Returns the thread's name.
+
+6) setName(String name)
+   Changes the thread's name.
+
+7) getPriority()
+   Returns the thread's priority.
+
+8) setPriority(int priority)
+   Sets the thread's priority, from 1 through 10.
+
+9) getState()
+   Returns a snapshot of the thread's current state.
+
+10) isAlive()
+    Returns true if the thread has been started and has not yet terminated.
+
+11) interrupt()
+    Sets the thread's interrupt status. Some blocking methods, such as
+    sleep(), wait(), and join(), respond by throwing InterruptedException.
+
+12) currentThread()
+    Static method that returns the currently executing Thread object.
+
+13) yield()
+    Static method that hints to the scheduler that the current thread is
+    willing to let other threads run. It is only a hint; do not rely on it
+    for correctness.
+
+Example:
+
+    Thread t1 = new Thread(() -> {
+        System.out.println("Running: " +
+                Thread.currentThread().getName());
+    });
+
+    t1.setName("MyWorker");
+    t1.setPriority(Thread.NORM_PRIORITY);
+
+    System.out.println(t1.getName());
+    System.out.println(t1.getPriority());
+
+    t1.start();
+    t1.join();
+
+    System.out.println(t1.getState()); // TERMINATED
+
+Important:
+The old Thread methods stop(), suspend(), and resume() are deprecated and
+unsafe. Do not use them in normal application code.
+
+
+4. RUNNABLE AND CREATING THREADS
+-------------------------------
+
+A common way to define a task is with Runnable:
+
+    Runnable task = () -> {
+        System.out.println("Task is running");
+    };
+
+    Thread t1 = new Thread(task);
+    t1.start();
+
+Runnable represents a task. Thread represents a thread of execution.
+
+You can also extend Thread, but implementing Runnable is often more flexible
+because your class can still extend another class.
+
+
+5. join()
+---------
+
+join() makes one thread wait for another thread to complete.
+
+Example:
+
+    Thread worker = new Thread(() -> {
+        System.out.println("Worker is doing work");
+    });
+
+    worker.start();
+    worker.join();
+
+    System.out.println("Worker has finished; main continues");
+
+Here, main waits at join() until worker finishes.
+
+Remember:
+join() waits for completion. It does not protect shared data from race
+conditions. Use synchronization or another concurrency mechanism for that.
+
+
+6. RACE CONDITION AND synchronized
+----------------------------------
+
+A race condition occurs when multiple threads access and modify shared data
+concurrently, and the result depends on how their operations interleave.
+
+synchronized:
+- Protects a critical section using an object's monitor lock.
+- Only one thread at a time can own a particular monitor.
+- An instance synchronized method locks the current object (this).
+- A static synchronized method locks the Class object.
+
+Example:
+
+    public class Account {
+        int balance = 0;
+
+        synchronized void add() {
+            for (int i = 0; i < 1000; i++) {
+                balance += i;
+            }
+        }
+
+        synchronized void subtract() {
+            for (int i = 0; i < 1000; i++) {
+                balance -= i;
+            }
+        }
+
+        public static void main(String[] args) throws InterruptedException {
+            Account account = new Account();
+
+            Thread t1 = new Thread(account::add);
+            Thread t2 = new Thread(account::subtract);
+
+            t1.start();
+            t2.start();
+
+            t1.join();
+            t2.join();
+
+            System.out.println(account.balance); // 0
+        }
+    }
+
+Why does this example print 0?
+- Both methods are synchronized instance methods on the same account object.
+- Both therefore use the same monitor.
+- One method runs at a time.
+- Both loops add and subtract the same total.
+- join() makes main wait for both threads before printing.
+
+Important distinction:
+- synchronized controls access to shared data.
+- join() waits for a thread to finish.
+They solve different problems.
+
+
+7. wait(), notify(), notifyAll(), sleep()
+-----------------------------------------
+
+wait():
+- Called on an object while holding that object's monitor.
+- Releases that object's monitor and makes the current thread wait.
+- The thread can continue after notification and reacquiring the monitor,
+  or after interruption.
+
+notify():
+- Called while holding the same object's monitor.
+- Wakes one thread waiting on that object's monitor.
+- The awakened thread must reacquire the monitor before it can continue.
+
+notifyAll():
+- Wakes all threads waiting on that object's monitor.
+- They compete to reacquire the monitor; they do not all enter the
+  synchronized block simultaneously.
+
+sleep(milliseconds):
+- Pauses the current thread for a specified time.
+- Does NOT release a monitor lock held by the thread.
+- It is a static method of Thread.
+
+Simple example:
+
+    public class WaitNotifyExample {
+        private static final Object monitor = new Object();
+
+        public static void main(String[] args) throws InterruptedException {
+            Thread worker = new Thread(() -> {
+                synchronized (monitor) {
+                    try {
+                        System.out.println("Worker: waiting");
+                        monitor.wait();
+                        System.out.println("Worker: notified and continued");
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+            });
+
+            worker.start();
+
+            // Simple demonstration pause so worker can reach wait().
+            Thread.sleep(500);
+
+            synchronized (monitor) {
+                System.out.println("Main: notifying worker");
+                monitor.notify();
+            }
+
+            worker.join();
+        }
+    }
+
+Important rules:
+- Calling wait(), notify(), or notifyAll() without owning that object's
+  monitor causes IllegalMonitorStateException.
+- Use the SAME monitor object for wait() and notify().
+- In real code, check the condition in a while loop:
+      synchronized (monitor) {
+          while (!condition) {
+              monitor.wait();
+          }
+      }
+- sleep() does not notify another thread.
+- notify() is an operation, not a thread state.
+
+
+8. DEADLOCK
+-----------
+
+Deadlock occurs when two or more threads wait forever for locks held by
+each other, so none can continue.
+
+Example situation:
+- Thread 1 holds lock1 and waits for lock2.
+- Thread 2 holds lock2 and waits for lock1.
+- Neither can proceed.
+
+Example (possible deadlock; exact timing is not guaranteed):
+
+    public class DeadlockExample {
+        static final Object lock1 = new Object();
+        static final Object lock2 = new Object();
+
+        public static void main(String[] args) {
+            Thread t1 = new Thread(() -> {
+                synchronized (lock1) {
+                    System.out.println("T1 acquired lock1");
+                    synchronized (lock2) {
+                        System.out.println("T1 acquired lock2");
+                    }
+                }
+            });
+
+            Thread t2 = new Thread(() -> {
+                synchronized (lock2) {
+                    System.out.println("T2 acquired lock2");
+                    synchronized (lock1) {
+                        System.out.println("T2 acquired lock1");
+                    }
+                }
+            });
+
+            t1.start();
+            t2.start();
+        }
+    }
+
+Note:
+This example may deadlock, but it may also finish if one thread obtains both
+locks before the other thread obtains its first lock.
+
+Ways to reduce/prevent deadlock:
+- Acquire multiple locks in a consistent global order.
+- Avoid holding one lock while waiting for another where possible.
+- Keep synchronized sections short.
+- Consider higher-level concurrency utilities.
+
+
+9. THREAD STATES
+----------------
+
+Java defines six Thread.State values:
+
+NEW:
+Thread object is created; start() has not been called.
+
+RUNNABLE:
+Thread is ready to run or is running. Java does not expose a separate
+RUNNING state.
+
+BLOCKED:
+Thread is waiting to acquire a synchronized monitor lock.
+
+WAITING:
+Thread is waiting indefinitely for another thread's action. Examples:
+Object.wait() without timeout and Thread.join() without timeout.
+
+TIMED_WAITING:
+Thread is waiting for a specified time. Examples:
+Thread.sleep(1000), wait(1000), join(1000).
+
+TERMINATED:
+Thread has completed its run() method.
+
+Typical transitions:
+- new Thread(...) -> NEW
+- start() -> RUNNABLE
+- wait() -> WAITING
+- sleep(...) -> TIMED_WAITING
+- waiting to enter synchronized block -> BLOCKED
+- run() completes -> TERMINATED
+
+notify() is NOT a state. A notified thread must reacquire the monitor before
+it can continue. getState() is only a snapshot; the state can change quickly.
+
+Example:
+
+    Thread t1 = new Thread(() -> System.out.println("Working"));
+
+    System.out.println(t1.getState()); // NEW
+    t1.start();
+    t1.join();
+    System.out.println(t1.getState()); // TERMINATED
+
+
+10. THREAD PRIORITY
+-------------------
+
+Java thread priorities range from 1 to 10:
+
+Thread.MIN_PRIORITY  = 1  (lowest)
+Thread.NORM_PRIORITY = 5  (normal)
+Thread.MAX_PRIORITY  = 10 (highest)
+
+Methods:
+- setPriority(number): sets priority.
+- getPriority(): reads priority.
+
+Example:
+
+    Thread low = new Thread(() -> System.out.println("Low"));
+    Thread normal = new Thread(() -> System.out.println("Normal"));
+    Thread high = new Thread(() -> System.out.println("High"));
+
+    low.setPriority(Thread.MIN_PRIORITY);
+    normal.setPriority(Thread.NORM_PRIORITY);
+    high.setPriority(Thread.MAX_PRIORITY);
+
+    low.start();
+    normal.start();
+    high.start();
+
+Important:
+Higher priority does NOT guarantee earlier execution. Actual scheduling
+depends on the JVM and operating system. Priority is a scheduling hint.
+
+
+11. THREAD POOL AND ExecutorService
+-----------------------------------
+
+A thread pool is a group of reusable worker threads.
+Instead of creating a new Thread for every task, submit tasks to the pool.
+
+Real-life example:
+- A restaurant has 3 waiters and 6 customer orders.
+- Initially, 3 waiters handle 3 orders.
+- Other orders wait.
+- When a waiter finishes, that waiter takes another waiting order.
+- The same waiters are reused.
+
+Example:
+
+    import java.util.concurrent.ExecutorService;
+    import java.util.concurrent.Executors;
+    import java.util.concurrent.TimeUnit;
+
+    public class ThreadPoolExample {
+        public static void main(String[] args) {
+            ExecutorService pool = Executors.newFixedThreadPool(3);
+
+            for (int i = 1; i <= 6; i++) {
+                final int taskNumber = i;
+
+                pool.submit(() -> {
+                    String worker = Thread.currentThread().getName();
+                    System.out.println("Task " + taskNumber
+                            + " started by " + worker);
+
+                    try {
+                        Thread.sleep(1000);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+
+                    System.out.println("Task " + taskNumber
+                            + " completed by " + worker);
+                });
+            }
+
+            pool.shutdown();
+
+            try {
+                if (pool.awaitTermination(1, TimeUnit.MINUTES)) {
+                    System.out.println("All tasks completed");
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+Important methods:
+- Executors.newFixedThreadPool(3): creates a pool with 3 worker threads.
+- submit(task): submits a task and returns a Future.
+- execute(task): submits a Runnable without returning a Future.
+- shutdown(): stops accepting new tasks but lets submitted tasks finish.
+- shutdownNow(): attempts to stop active tasks and returns tasks that never
+  commenced; interruption is best-effort, not a guarantee.
+- awaitTermination(...): waits for pool termination.
+
+With 3 worker threads and 6 tasks:
+- At most 3 tasks execute at the same time.
+- Other tasks wait for a worker.
+- A worker can execute multiple tasks over time.
+- Exact task order is not guaranteed.
+
+
+12. Runnable VS Callable
+------------------------
+
+Runnable:
+- Represents a task.
+- Its run() method returns no result (void).
+- It cannot declare a checked exception in its method signature.
+
+Callable:
+- Represents a task that returns a result.
+- Its call() method returns a value.
+- It can throw checked exceptions.
+
+Example:
+
+    Callable<Integer> task = () -> 10 + 20;
+    ExecutorService pool = Executors.newSingleThreadExecutor();
+
+    Future<Integer> result = pool.submit(task);
+    System.out.println(result.get()); // 30
+
+    pool.shutdown();
+
+Future.get() waits for the result if it is not ready yet.
+
+
+13. execute() VS submit()
+-------------------------
+
+execute(Runnable):
+- Used with Executor.
+- Submits a Runnable task.
+- Does not return a Future.
+
+submit(...):
+- Used with ExecutorService.
+- Accepts Runnable or Callable.
+- Returns a Future that can be used to get a result or inspect/cancel work.
+
+Use submit() when you need a Future or a Callable result.
+
+
+14. DAEMON THREAD
+-----------------
+
+A daemon thread is a background-support thread.
+The JVM does not keep running only because daemon threads remain.
+
+Example:
+
+    Thread background = new Thread(() -> {
+        while (true) {
+            System.out.println("Background work");
+        }
+    });
+
+    background.setDaemon(true); // Must be set before start().
+    background.start();
+
+Important:
+- setDaemon(true) must be called before start().
+- The JVM may exit when only daemon threads remain.
+- Do not rely on daemon threads to complete important work or save data.
+
+
+15. volatile
+------------
+
+volatile is a Java keyword used for a shared variable.
+A write to a volatile variable becomes visible to other threads that
+subsequently read that variable.
+
+Example:
+
+    private static volatile boolean running = true;
+
+    // Worker thread:
+    while (running) {
+        // Continue working
+    }
+
+    // Another thread:
+    running = false;
+
+Important:
+volatile provides visibility and ordering guarantees, but it does NOT make
+compound operations such as count++ atomic.
+
+For atomic counters, consider AtomicInteger or synchronization.
+
+
+16. synchronized VS Lock
+------------------------
+
+synchronized:
+- Built into the Java language.
+- Automatically releases the monitor when the synchronized block/method exits.
+- Supports entering and exiting a monitor.
+
+Lock (for example ReentrantLock):
+- Provides explicit lock() and unlock().
+- Supports features such as tryLock() and interruptible lock acquisition.
+- Must normally unlock in a finally block.
+
+Example:
+
+    Lock lock = new ReentrantLock();
+
+    lock.lock();
+    try {
+        // Critical section
+    } finally {
+        lock.unlock();
+    }
+
+Use the simpler synchronized construct when its features are sufficient.
+Use Lock when you need its additional capabilities.
+
+
+17. INTERVIEW QUESTIONS AND ANSWERS
+-----------------------------------
+
+Q1. What is a thread?
+A. A thread is a path of execution within a process.
+
+Q2. What is multithreading?
+A. Running multiple threads concurrently within a program.
+
+Q3. What is the difference between a process and a thread?
+A. A process is a running program with its own resources. Threads are
+   execution paths within a process and share process memory/resources.
+
+Q4. What is the difference between start() and run()?
+A. start() starts a new thread; calling run() directly is a normal method call.
+
+Q5. Can we call start() twice on the same Thread object?
+A. No. It throws IllegalThreadStateException.
+
+Q6. Can we call run() directly?
+A. Yes, but it runs like a normal method on the current thread.
+
+Q7. Name at least five methods of the Thread class.
+A. start(), run(), sleep(), join(), interrupt(), getName(), setName(),
+   getState(), isAlive(), getPriority(), setPriority(), currentThread().
+
+Q8. What does sleep() do?
+A. Pauses the current thread for a specified time. It does not release
+   monitor locks held by that thread.
+
+Q9. What does join() do?
+A. Makes the current thread wait until the target thread completes.
+
+Q10. What is a race condition?
+A. A problem where the result depends on the timing/interleaving of
+    concurrent access to shared data.
+
+Q11. What is synchronization?
+A. Controlling access to shared code/data using a lock so that only one
+   thread at a time owns a particular monitor.
+
+Q12. What is a critical section?
+A. A section of code that accesses shared data and must be protected
+   against unsafe concurrent access.
+
+Q13. What is deadlock?
+A. A situation where threads wait indefinitely for locks held by one another.
+
+Q14. How can deadlock be avoided?
+A. Acquire locks in a consistent order, reduce nested locking, and avoid
+   holding locks while waiting for other resources.
+
+Q15. What is the difference between wait() and sleep()?
+A. wait() releases the object's monitor and waits; sleep() pauses the
+   current thread but does not release a monitor lock.
+
+Q16. Why must wait() be called inside synchronized code?
+A. The thread must own that object's monitor before it can wait on it.
+
+Q17. What does notify() do?
+A. Wakes one thread waiting on the same object's monitor.
+
+Q18. What does notifyAll() do?
+A. Wakes all threads waiting on the same object's monitor. They must
+   reacquire the monitor before proceeding.
+
+Q19. Does notify() release the lock immediately?
+A. No. The notifying thread continues until it exits the synchronized
+   region or otherwise releases the monitor.
+
+Q20. What are the six Java thread states?
+A. NEW, RUNNABLE, BLOCKED, WAITING, TIMED_WAITING, TERMINATED.
+
+Q21. Is RUNNING a separate Java Thread.State?
+A. No. Java represents both ready-to-run and running threads as RUNNABLE.
+
+Q22. What is the BLOCKED state?
+A. A thread is waiting to acquire a synchronized monitor lock.
+
+Q23. What is thread priority?
+A. A scheduling hint indicating a thread's relative importance.
+
+Q24. Does maximum priority guarantee that a thread runs first?
+A. No. Scheduling depends on the JVM and operating system.
+
+Q25. What is a daemon thread?
+A. A background-support thread that does not prevent the JVM from exiting
+   when only daemon threads remain.
+
+Q26. What is a thread pool?
+A. A group of reusable worker threads that execute submitted tasks.
+
+Q27. Why use a thread pool?
+A. To reuse threads, reduce repeated thread-creation overhead, and control
+   the number of concurrent worker threads.
+
+Q28. What is ExecutorService?
+A. A Java concurrency interface for managing task execution, including
+   submitting tasks and shutting down the executor.
+
+Q29. What is the difference between execute() and submit()?
+A. execute() accepts a Runnable and returns nothing. submit() accepts
+   Runnable or Callable and returns a Future.
+
+Q30. What is the difference between Runnable and Callable?
+A. Runnable's run() returns no result. Callable's call() returns a result
+   and can throw checked exceptions.
+
+Q31. What is Future?
+A. An object representing the result of an asynchronous computation.
+   get() can wait for the result.
+
+Q32. What is the difference between shutdown() and shutdownNow()?
+A. shutdown() stops accepting new tasks but lets submitted tasks finish.
+   shutdownNow() attempts to interrupt active tasks and returns tasks
+   that have not started.
+
+Q33. What is volatile?
+A. A keyword that provides visibility guarantees for a shared variable.
+   It does not make compound operations like count++ atomic.
+
+Q34. What is the difference between synchronized and ReentrantLock?
+A. synchronized uses an intrinsic monitor. ReentrantLock offers explicit
+   locking and features such as tryLock() and interruptible acquisition.
+
+Q35. What is context switching?
+A. The operating system saves the state of one executing thread and
+   restores another so the CPU can run the other thread.
+
+END OF MASTER NOTES
+===================
